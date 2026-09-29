@@ -166,3 +166,34 @@ class FinanceAPI:
             rows = cur.fetchall()
 
         return pd.DataFrame(rows)
+    
+    def get_tables(self) -> list[str]:
+        sql = """
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema,))
+            return [r["table_name"] for r in cur.fetchall()]
+
+    def get_columns(self, table: str) -> list[str]:
+        sql = """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            return [r["column_name"] for r in cur.fetchall()]
+
+    def get_current_user_groups(self) -> list[str]:
+        sql = """
+            SELECT r.rolname FROM pg_auth_members m
+            JOIN pg_roles r ON r.oid = m.roleid
+            JOIN pg_roles u ON u.oid = m.member
+            WHERE u.rolname = current_user
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql)
+            return [r["rolname"] for r in cur.fetchall()]
