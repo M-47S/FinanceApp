@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
@@ -16,7 +15,7 @@ FORBIDDEN_ICON_PATH = IMAGES_DIR / "forbidden.jpg"
 # --- Иконка приложения ---
 
 def set_app_icon(app: QApplication) -> None:
-    """Ставит иконку приложения (таскбар, заголовок окна, Alt+Tab)."""
+    """Ставит иконку приложения (видна в таскбаре, заголовке окна, Alt+Tab)."""
     if APP_ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
 
@@ -29,11 +28,11 @@ def _icon_pixmap(path: Path) -> QPixmap | None:
     pixmap = QPixmap(str(path))
     if pixmap.isNull():
         return None
+    # Приводим к разумному размеру, чтобы не растягивало layout
     return pixmap.scaled(
-        64,
-        64,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
+        64, 64,
+        aspectRatioMode=1,      # KeepAspectRatio
+        transformMode=1,        # SmoothTransformation
     )
 
 
@@ -61,6 +60,7 @@ def show_message(
     else:
         box.setIcon(QMessageBox.Icon.Information)
 
+    # Иконка самого окна сообщения (в заголовке) — та же, что у приложения
     if APP_ICON_PATH.exists():
         box.setWindowIcon(QIcon(str(APP_ICON_PATH)))
 

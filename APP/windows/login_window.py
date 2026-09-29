@@ -47,7 +47,13 @@ class LoginWindow(QWidget):
 
     def _on_login(self):
         try:
-            self.session.login(...)
+            self.session.login(
+                host=self.host_edit.text().strip(),
+                port=self.port_edit.value(),
+                dbname=self.db_edit.text().strip(),
+                user=self.user_edit.text().strip(),
+                password=self.password_edit.text(),
+            )
         except Exception as e:
             show_message(
                 self,
@@ -56,3 +62,8 @@ class LoginWindow(QWidget):
                 icon_path=FORBIDDEN_ICON_PATH,
             )
             return
+
+        from APP.windows.main_menu_window import MainMenuWindow
+        self.menu = MainMenuWindow(self.session)
+        self.menu.show()
+        self.close()
