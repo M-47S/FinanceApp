@@ -43,36 +43,26 @@ class FinanceAPI:
                 f"Columns not found in '{self.schema}.{table}': {sorted(missing)}"
             )
 
-    # ---------- 4. connection check ----------
+    # ---------- 0. connection check ----------
 
     def ping(self) -> bool:
         """Return True if DB is reachable and credentials are valid."""
         with self.db.cursor() as cur:
             cur.execute("SELECT 1 AS ok")
             return cur.fetchone()["ok"] == 1
+        
+    # ---------- 1. load from dataframe into DB ----------
 
-    # ---------- 1. load from Excel into DB ----------
-
-    def load_from_excel(
-        self,
-        table: str,
-        file_path: str | Path,
-        sheet_name: str | int = 0,
-    ) -> int:
+    def load_dataframe(self, table: str, df: pd.DataFrame) -> int:
         """
-        Read an Excel file and INSERT rows into `table`.
-        Columns in the file must match column names in the table.
-        Returns the number of inserted rows.
+        Вставляет строки из DataFrame в таблицу.
+        Колонки DataFrame должны совпадать с колонками таблицы.
+        Возвращает число вставленных строк.
         """
-        self._table_columns(table)  # raises TableNotFoundError
-        try:
-            df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
-        except Exception as e:
-            raise ExcelReadError(f"Cannot read '{file_path}': {e}") from e
-
         if df.empty:
             return 0
 
+        self._table_columns(table)
         self._validate_columns(table, list(df.columns))
 
         cols = list(df.columns)
@@ -92,7 +82,23 @@ class FinanceAPI:
             cur.executemany(sql, values)
             return cur.rowcount
 
-    # ---------- 2. unload from DB ----------
+    # ---------- 2. load from Excel into DB ----------
+
+    def load_from_excel(
+        self,
+        table: str,
+        file_path: str | Path,
+        sheet_name: str | int = 0,
+    ) -> int:
+        """Читает Excel и вставляет строки через load_dataframe()."""
+        self._table_columns(table)  # ранняя проверка
+        try:
+            df = pd.read_excel(file_path, sheet_name=sheet_name, engine="openpyxl")
+        except Exception as e:
+            raise ExcelReadError(f"Cannot read '{file_path}': {e}") from e
+        return self.load_dataframe(table, df)
+
+    # ---------- 3. unload from DB ----------
 
     def unload_to_dataframe(
         self,
@@ -144,7 +150,7 @@ class FinanceAPI:
             raise ExcelWriteError(f"Cannot write '{file_path}': {e}") from e
         return len(df)
 
-    # ---------- 3. custom SQL ----------
+    # ---------- 4. custom SQL ----------
 
     def execute_sql(
         self,
@@ -186,7 +192,7 @@ class FinanceAPI:
         with self.db.cursor() as cur:
             cur.execute(sql, (self.schema, table))
             return [r["column_name"] for r in cur.fetchall()]
-
+    
     def get_current_user_groups(self) -> list[str]:
         sql = """
             SELECT r.rolname FROM pg_auth_members m
@@ -197,3 +203,21 @@ class FinanceAPI:
         with self.db.cursor() as cur:
             cur.execute(sql)
             return [r["rolname"] for r in cur.fetchall()]
+        
+    def get_writable_columns(self, table: str) -> list[str]:
+        """
+        Колонки, доступные для ручной вставки.
+        Исключает identity и generated (т.е. авто-генерируемые id).
+        """
+        sql = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name = %s
+              AND is_identity = 'NO'
+              AND is_generated = 'NEVER'
+            ORDER BY ordinal_position
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            return [r["column_name"] for r in cur.fetchall()]
