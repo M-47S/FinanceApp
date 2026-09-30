@@ -1,0 +1,6 @@
+CREATE DATABASE "FinDB" OWNER = admin_group
+	ENCODING = 'UTF-8'
+	LC_COLLATE = 'ru_RU'
+	LC_CTYPE = 'ru_RU' 
+	TEMPLATE = template0
+	CONNECTION LIMIT = 50;

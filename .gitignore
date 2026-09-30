@@ -10,6 +10,7 @@ dist/
 .venv/
 venv/
 env/
+/project_venv/
 
 # ===== Env / secrets =====
 /ssh-key/
