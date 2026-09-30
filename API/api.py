@@ -221,3 +221,109 @@ class FinanceAPI:
         with self.db.cursor() as cur:
             cur.execute(sql, (self.schema, table))
             return [r["column_name"] for r in cur.fetchall()]
+        
+    # ---------- manipulation helpers ----------
+    
+    def get_primary_key_columns(self, table: str) -> list[str]:
+        sql = """
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+              AND tc.table_schema = %s
+              AND tc.table_name = %s
+            ORDER BY kcu.ordinal_position
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            return [r["column_name"] for r in cur.fetchall()]
+
+    def get_referenced_columns(self, table: str) -> set[str]:
+        """Столбцы таблицы, на которые ссылаются FK из других таблиц."""
+        sql = """
+            SELECT DISTINCT a.attname AS column_name
+            FROM pg_constraint c
+            JOIN pg_class t      ON t.oid = c.confrelid
+            JOIN pg_namespace n  ON n.oid = t.relnamespace
+            JOIN pg_attribute a  ON a.attrelid = c.confrelid
+                                AND a.attnum = ANY(c.confkey)
+            WHERE c.contype = 'f'
+              AND n.nspname = %s
+              AND t.relname = %s
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            return {r["column_name"] for r in cur.fetchall()}
+
+    def get_editable_columns(
+        self, table: str, is_admin: bool = False,
+    ) -> list[str]:
+        """
+        Колонки, доступные для редактирования.
+        - identity / generated (т.е. id) — недоступны всем
+        - FK-референсы — только админам
+        """
+        sql = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name = %s
+              AND is_identity = 'NO'
+              AND is_generated = 'NEVER'
+            ORDER BY ordinal_position
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            writable = [r["column_name"] for r in cur.fetchall()]
+
+        if is_admin:
+            return writable
+
+        referenced = self.get_referenced_columns(table)
+        return [c for c in writable if c not in referenced]
+
+    def fetch_all(self, table: str, limit: int = 500) -> pd.DataFrame:
+        """Все колонки таблицы, PK — в начале."""
+        pk_cols = self.get_primary_key_columns(table)
+        all_cols = self.get_columns(table)
+        ordered = pk_cols + [c for c in all_cols if c not in pk_cols]
+        return self.unload_to_dataframe(table, columns=ordered, limit=limit)
+
+    def update_row(
+        self, table: str, pk_values: dict, updates: dict,
+    ) -> int:
+        """UPDATE строки, идентифицированной по PK."""
+        if not pk_values:
+            raise ValidationError("Не указан первичный ключ")
+        if not updates:
+            return 0
+
+        self._table_columns(table)
+        self._validate_columns(table, list(updates.keys()))
+        self._validate_columns(table, list(pk_values.keys()))
+
+        set_sql = ", ".join(f'"{c}" = %s' for c in updates.keys())
+        where_sql = " AND ".join(f'"{c}" = %s' for c in pk_values.keys())
+        sql = f'UPDATE "{self.schema}"."{table}" SET {set_sql} WHERE {where_sql}'
+
+        params = list(updates.values()) + list(pk_values.values())
+        with self.db.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.rowcount
+
+    def delete_row(self, table: str, pk_values: dict) -> int:
+        """DELETE строки, идентифицированной по PK."""
+        if not pk_values:
+            raise ValidationError("Не указан первичный ключ")
+
+        self._table_columns(table)
+        self._validate_columns(table, list(pk_values.keys()))
+
+        where_sql = " AND ".join(f'"{c}" = %s' for c in pk_values.keys())
+        sql = f'DELETE FROM "{self.schema}"."{table}" WHERE {where_sql}'
+
+        with self.db.cursor() as cur:
+            cur.execute(sql, list(pk_values.values()))
+            return cur.rowcount
