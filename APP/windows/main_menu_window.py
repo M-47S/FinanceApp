@@ -43,6 +43,10 @@ class MainMenuWindow(QWidget):
                 icon_path=FORBIDDEN_ICON_PATH,
             )
             return
+
+        from APP.windows.load_data_window import LoadDataWindow
+        self.load_window = LoadDataWindow(self.session)
+        self.load_window.show()
         
     def _open_analytics(self):
         from APP.windows.analytics_window import AnalyticsWindow

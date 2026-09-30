@@ -22,8 +22,10 @@ class Database:
                 password=self.config.password,
                 options=f"-c search_path={self.config.schema},public",
             )
-        except psycopg2.Error as e:
-            raise DBConnectionError(f"Cannot connect to database: {e}") from e
+        except Exception as e:
+            # Ловим всё, включая UnicodeDecodeError от русских сообщений Windows
+            msg = str(e) or e.__class__.__name__
+            raise DBConnectionError(f"Не удалось подключиться к БД: {msg}") from e
         try:
             yield conn
         finally:
