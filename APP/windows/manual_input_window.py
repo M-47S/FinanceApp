@@ -3,7 +3,7 @@
 import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QSpinBox, QTableWidget, QHeaderView,
+    QSpinBox, QTableWidget, QHeaderView, QComboBox,
 )
 
 from API import FinanceAPIError
@@ -15,10 +15,14 @@ class ManualInputWindow(QWidget):
         super().__init__()
         self.session = session
         self.table = table
+
         self.columns: list[str] = []
+        self.fk_columns: dict[str, dict] = {}          # col → {ref_table, ref_column}
+        self.fk_options: dict[str, list[tuple]] = {}   # col → [(pk, label), ...]
+        self.nullable_columns: set[str] = set()
 
         self.setWindowTitle(f"Интерактивная запись — {table}")
-        self.resize(900, 500)
+        self.resize(1000, 520)
 
         root = QVBoxLayout(self)
 
@@ -56,10 +60,27 @@ class ManualInputWindow(QWidget):
 
         root.addLayout(bottom)
 
-        # Загружаем колонки таблицы
+        # Загружаем метаданные и колонки
+        self._load_metadata()
         self._load_columns()
 
     # ---------- инициализация ----------
+
+    def _load_metadata(self):
+        """Тянем FK, опции для дропдаунов и nullable-колонки."""
+        try:
+            self.fk_columns = self.session.api.get_foreign_keys(self.table)
+            self.nullable_columns = self.session.api.get_nullable_columns(self.table)
+
+            for col, info in self.fk_columns.items():
+                self.fk_options[col] = self.session.api.get_fk_options(
+                    info["ref_table"]
+                )
+        except FinanceAPIError as e:
+            show_message(
+                self, "Ошибка метаданных", str(e),
+                icon_path=FORBIDDEN_ICON_PATH,
+            )
 
     def _load_columns(self):
         try:
@@ -87,12 +108,41 @@ class ManualInputWindow(QWidget):
         self._resize_rows(self.rows_spin.value())
 
     def _resize_rows(self, n: int):
+        current = self.table_widget.rowCount()
         self.table_widget.setRowCount(n)
+        # Создаём виджеты только для новых строк — существующие сохраняем
+        for i in range(current, n):
+            self._setup_row_widgets(i)
+
+    def _setup_row_widgets(self, row: int):
+        """Для FK-колонок создаём QComboBox, остальные — обычные ячейки."""
+        for j, col in enumerate(self.columns):
+            if col not in self.fk_options:
+                continue
+
+            combo = QComboBox()
+            # Если колонка nullable — первым пунктом «пусто» (NULL)
+            if col in self.nullable_columns:
+                combo.addItem("— пусто —", None)
+
+            for pk_val, label in self.fk_options[col]:
+                combo.addItem(f"{pk_val} - {label}", pk_val)
+
+            self.table_widget.setCellWidget(row, j, combo)
 
     # ---------- действия ----------
 
     def _clear(self):
         self.table_widget.clearContents()
+        # clearContents() не удаляет cellWidget — чистим вручную
+        for i in range(self.table_widget.rowCount()):
+            for j in range(self.table_widget.columnCount()):
+                widget = self.table_widget.cellWidget(i, j)
+                if widget is not None:
+                    self.table_widget.removeCellWidget(i, j)
+        # Пересоздаём виджеты для FK-колонок
+        for i in range(self.table_widget.rowCount()):
+            self._setup_row_widgets(i)
 
     def _collect_dataframe(self) -> pd.DataFrame:
         """Собирает заполненные строки в DataFrame, пропуская пустые."""
@@ -100,14 +150,23 @@ class ManualInputWindow(QWidget):
         for i in range(self.table_widget.rowCount()):
             row = []
             is_empty = True
-            for j in range(self.table_widget.columnCount()):
-                item = self.table_widget.item(i, j)
-                text = item.text().strip() if item else ""
-                if text:
-                    is_empty = False
-                    row.append(text)
+            for j, col in enumerate(self.columns):
+                widget = self.table_widget.cellWidget(i, j)
+
+                if isinstance(widget, QComboBox):
+                    value = widget.currentData()  # None, если «— пусто —»
+                    if value is not None:
+                        is_empty = False
+                    row.append(value)
                 else:
-                    row.append(None)
+                    item = self.table_widget.item(i, j)
+                    text = item.text().strip() if item else ""
+                    if text:
+                        is_empty = False
+                        row.append(text)
+                    else:
+                        row.append(None)
+
             if not is_empty:
                 rows.append(row)
 
