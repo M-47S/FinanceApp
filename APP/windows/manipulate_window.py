@@ -100,9 +100,12 @@ class ManipulateWindow(QWidget):
         self.limit_spin.setValue(500)
         left_layout.addWidget(self.limit_spin)
 
-        self.refresh_btn = QPushButton("Обновить")
+        self.refresh_btn = QPushButton("🔄 Обновить")
         self.refresh_btn.setMinimumHeight(34)
-        self.refresh_btn.clicked.connect(self._reload_data)
+        self.refresh_btn.setToolTip(
+            "Перезагрузить список таблиц и данные"
+        )
+        self.refresh_btn.clicked.connect(self._refresh)
         left_layout.addWidget(self.refresh_btn)
 
         left_layout.addStretch()
@@ -173,9 +176,7 @@ class ManipulateWindow(QWidget):
 
     # ---------------- Таблицы и данные ----------------
 
-    def _reload_tables(self):
-        self.table_combo.blockSignals(True)
-        self.table_combo.clear()
+    def _reload_tables(self, preserve: str | None = None):
         try:
             tables = self.session.api.get_tables()
         except FinanceAPIError as e:
@@ -183,13 +184,22 @@ class ManipulateWindow(QWidget):
                 self, "Ошибка", str(e),
                 icon_path=FORBIDDEN_ICON_PATH,
             )
-            self.table_combo.blockSignals(False)
             return
-        self.table_combo.addItems(tables)
-        self.table_combo.blockSignals(False)
-        if tables:
-            self._on_table_changed(tables[0])
 
+        self.table_combo.blockSignals(True)
+        self.table_combo.clear()
+        self.table_combo.addItems(tables)
+
+        target = preserve if preserve and preserve in tables else (
+            tables[0] if tables else ""
+        )
+        if target:
+            self.table_combo.setCurrentText(target)
+        self.table_combo.blockSignals(False)
+
+        if target:
+            self._on_table_changed(target)
+    
     def _on_table_changed(self, table: str):
         if not table:
             return
@@ -221,7 +231,11 @@ class ManipulateWindow(QWidget):
             f"(строк: {len(df)}, PK: {pk_display})"
         )
         self.result_table.load_dataframe(df)
-
+    
+    def _refresh(self):
+        """Полное обновление: список таблиц + данные."""
+        current_table = self.table_combo.currentText()
+        self._reload_tables(preserve=current_table)
     # ---------------- Редактирование ----------------
 
     def _edit_selected(self):

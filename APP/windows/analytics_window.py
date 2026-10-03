@@ -39,6 +39,15 @@ class AnalyticsWindow(QWidget):
         top.addWidget(self.btn_normal)
         top.addWidget(self.btn_sql)
         top.addStretch()
+
+        self.refresh_btn = QPushButton("🔄 Обновить")
+        self.refresh_btn.setMinimumHeight(34)
+        self.refresh_btn.setToolTip(
+            "Перезагрузить список таблиц и повторно выполнить текущий запрос"
+        )
+        self.refresh_btn.clicked.connect(self._refresh)
+        top.addWidget(self.refresh_btn)
+
         root.addLayout(top)
 
         # ---------- Основная область ----------
@@ -132,19 +141,32 @@ class AnalyticsWindow(QWidget):
 
     # ---------------- Данные ----------------
 
-    def _reload_tables(self):
-        self.table_combo.clear()
+    def _reload_tables(self, preserve: str | None = None):
+        """Перезагружает список таблиц. preserve — какую таблицу оставить выбранной."""
         try:
             tables = self.session.api.get_tables()
         except FinanceAPIError as e:
             show_message(
-                self, "Ошибка",
-                str(e),
+                self, "Ошибка", str(e),
                 icon_path=FORBIDDEN_ICON_PATH,
             )
             return
+
+        self.table_combo.blockSignals(True)
+        self.table_combo.clear()
         self.table_combo.addItems(tables)
 
+        target = preserve if preserve and preserve in tables else (
+            tables[0] if tables else ""
+        )
+        if target:
+            self.table_combo.setCurrentText(target)
+        self.table_combo.blockSignals(False)
+
+        # Сигналы заблокированы — вызываем вручную
+        if target:
+            self._reload_columns(target)
+            
     def _reload_columns(self, table: str):
         self.columns_list.clear()
         if not table:
@@ -167,6 +189,25 @@ class AnalyticsWindow(QWidget):
 
     def _selected_columns(self) -> list[str]:
         return [i.text() for i in self.columns_list.selectedItems()]
+
+    def _refresh(self):
+        """Перезагружает таблицы/колонки и повторяет последний запрос."""
+        current_table = self.table_combo.currentText()
+
+        # 1. Перечитываем список таблиц (вдруг кто-то создал новую)
+        self._reload_tables(preserve=current_table)
+
+        # 2. Если что-то уже выполнялось — повторяем
+        if self.last_df is None:
+            return
+
+        if self.btn_sql.isChecked():
+            # В SQL-режиме — просто повторяем текущий запрос
+            if self.sql_edit.toPlainText().strip():
+                self._execute_sql()
+        else:
+            # В обычном режиме — повторяем выбор
+            self._execute()
 
     def _execute(self):
         table = self.table_combo.currentText()

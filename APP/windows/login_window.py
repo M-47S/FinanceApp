@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QLineEdit, QPushButton,
-    QMessageBox, QLabel, QSpinBox,
+    QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QLineEdit,
+    QPushButton, QLabel, QSpinBox,
 )
 from PyQt6.QtCore import Qt
 from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
@@ -27,15 +27,31 @@ class LoginWindow(QWidget):
         self.port_edit.setRange(1, 65535)
         self.port_edit.setValue(5432)
         self.db_edit = QLineEdit("FinDB")
+        
         self.user_edit = QLineEdit()
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+
+        # --- Password + кнопка «показать/скрыть» в одной строке ---
+        pwd_row = QHBoxLayout()
+        pwd_row.setContentsMargins(0, 0, 0, 0)
+        pwd_row.setSpacing(4)
+
+        pwd_row.addWidget(self.password_edit, 1)
+
+        self.toggle_pwd_btn = QPushButton("👁")
+        self.toggle_pwd_btn.setCheckable(True)
+        self.toggle_pwd_btn.setFixedWidth(36)
+        self.toggle_pwd_btn.setToolTip("Показать / скрыть пароль")
+        self.toggle_pwd_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_pwd_btn.clicked.connect(self._toggle_password)
+        pwd_row.addWidget(self.toggle_pwd_btn)
 
         form.addRow("Host:", self.host_edit)
         form.addRow("Port:", self.port_edit)
         form.addRow("Database:", self.db_edit)
         form.addRow("User:", self.user_edit)
-        form.addRow("Password:", self.password_edit)
+        form.addRow("Password:", pwd_row)
 
         layout.addLayout(form)
 
@@ -67,3 +83,11 @@ class LoginWindow(QWidget):
         self.menu = MainMenuWindow(self.session)
         self.menu.show()
         self.close()
+        
+    def _toggle_password(self):
+        if self.toggle_pwd_btn.isChecked():
+            self.password_edit.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.toggle_pwd_btn.setText("🙈")
+        else:
+            self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            self.toggle_pwd_btn.setText("👁")
