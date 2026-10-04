@@ -20,6 +20,9 @@ from .schemas import (
 
 router = APIRouter()
 
+@router.get("/", tags=["meta"])
+def root():
+    return {"service": "finance-api", "status": "ok"}
 
 # ==================== AUTH ====================
 

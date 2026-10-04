@@ -1,0 +1,51 @@
+# ==============================================================================
+# Dockerfile для FinanceApp REST API (FastAPI).
+# Сборка:  cd API && docker build -t fin_api:dev .
+# Запуск:  docker run -d -p 8000:8000 \
+#              -e DB_HOST=... -e DB_PORT=5432 -e DB_NAME=FinDB fin_api:dev
+# ==============================================================================
+
+ARG PYTHON_VERSION=3.11
+FROM python:${PYTHON_VERSION}-slim
+
+LABEL maintainer="M-47S"
+LABEL description="FinanceApp REST API (FastAPI + psycopg2)"
+
+# --- Переменные окружения ---
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# --- Рабочая директория ---
+WORKDIR /app
+
+# --- Системные зависимости ---
+# libpq5 нужен в рантайме для psycopg2-binary.
+# Если позже заменишь psycopg2-binary на psycopg2 (сборка из исходников),
+# добавь сюда ещё build-essential и libpq-dev — и убери их после сборки.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Python-зависимости ---
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# --- Код API ---
+# Копируем содержимое API/ внутрь /app/API/, чтобы `uvicorn API.server.app:app` работал
+COPY . ./API/
+
+# --- Порт ---
+EXPOSE 8000
+
+# --- Healthcheck ---
+# Обращается к корневому эндпоинту "/" (публичный, без авторизации).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://localhost:8000/ || exit 1
+
+# --- Запуск ---
+# CMD в exec-форме, чтобы Ctrl+C корректно гасил uvicorn.
+CMD ["uvicorn", "API.server.app:app", "--host", "0.0.0.0", "--port", "8000"]
