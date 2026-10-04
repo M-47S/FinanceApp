@@ -327,3 +327,99 @@ class FinanceAPI:
         with self.db.cursor() as cur:
             cur.execute(sql, list(pk_values.values()))
             return cur.rowcount
+        
+    def get_foreign_keys(self, table: str) -> dict[str, dict]:
+        """
+        Возвращает {column_name: {'ref_table': ..., 'ref_column': ...}}
+        для всех FK-столбцов таблицы.
+        Использует pg_constraint — не зависит от прав и работает стабильно.
+        """
+        sql = """
+            SELECT
+                a.attname         AS fk_column,
+                tref.relname      AS ref_table,
+                aref.attname      AS ref_column
+            FROM pg_constraint c
+            JOIN pg_class      t    ON t.oid  = c.conrelid
+            JOIN pg_namespace  n    ON n.oid  = t.relnamespace
+            JOIN pg_class      tref ON tref.oid = c.confrelid
+            JOIN pg_attribute  a    ON a.attrelid = c.conrelid
+                                AND a.attnum  = ANY(c.conkey)
+            JOIN pg_attribute  aref ON aref.attrelid = c.confrelid
+                                AND aref.attnum  = ANY(c.confkey)
+            WHERE c.contype   = 'f'
+            AND n.nspname   = %s
+            AND t.relname   = %s
+            ORDER BY a.attname
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            return {
+                r["fk_column"]: {
+                    "ref_table": r["ref_table"],
+                    "ref_column": r["ref_column"],
+                }
+                for r in cur.fetchall()
+            }
+    
+    def get_label_column(self, table: str) -> str | None:
+        """
+        Подбирает «отображаемую» колонку для dropdown'а —
+        первую текстовую колонку. Если таких нет — None.
+        """
+        sql = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name   = %s
+              AND data_type IN ('text', 'character varying', 'character')
+            ORDER BY ordinal_position
+            LIMIT 1
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            row = cur.fetchone()
+            return row["column_name"] if row else None
+
+    def get_fk_options(self, ref_table: str) -> list[tuple]:
+        """
+        Возвращает [(pk_value, label), ...] для dropdown'а.
+        label = "<pk> - <name>", если у ref_table есть текстовая колонка,
+        иначе label = "<pk>".
+        """
+        pk_cols = self.get_primary_key_columns(ref_table)
+        if not pk_cols:
+            return []
+
+        pk = pk_cols[0]
+        label_col = self.get_label_column(ref_table)
+
+        if label_col:
+            sql = (
+                f'SELECT "{pk}" AS pk, "{label_col}" AS label '
+                f'FROM "{self.schema}"."{ref_table}" '
+                f'ORDER BY "{label_col}"'
+            )
+        else:
+            sql = (
+                f'SELECT "{pk}" AS pk, "{pk}"::text AS label '
+                f'FROM "{self.schema}"."{ref_table}" '
+                f'ORDER BY "{pk}"'
+            )
+
+        with self.db.cursor() as cur:
+            cur.execute(sql)
+            return [(r["pk"], r["label"]) for r in cur.fetchall()]
+
+    def get_nullable_columns(self, table: str) -> set[str]:
+        """Множество колонок, куда можно вставить NULL."""
+        sql = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s
+              AND table_name   = %s
+              AND is_nullable  = 'YES'
+        """
+        with self.db.cursor() as cur:
+            cur.execute(sql, (self.schema, table))
+            return {r["column_name"] for r in cur.fetchall()}
