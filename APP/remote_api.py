@@ -10,12 +10,7 @@ from typing import Any, Sequence
 import pandas as pd
 import requests
 
-from API import (
-    DBError,
-    FinanceAPIError,
-    TableNotFoundError,
-    ValidationError,
-)
+from APP.exceptions import (DBError, FinanceAPIError, TableNotFoundError, ValidationError)
 
 
 class RemoteFinanceAPI:

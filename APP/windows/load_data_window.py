@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QFileDialog, QLabel, QComboBox,
 )
 
-from API import FinanceAPIError
+from APP.exceptions import FinanceAPIError
 from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
 
 

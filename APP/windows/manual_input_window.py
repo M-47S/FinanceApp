@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QSpinBox, QTableWidget, QHeaderView, QComboBox,
 )
 
-from API import FinanceAPIError
+from APP.exceptions import FinanceAPIError
 from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
 
 

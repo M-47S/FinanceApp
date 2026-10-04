@@ -8,14 +8,13 @@ from APP.windows.login_window import LoginWindow
 
 
 def main():
-    # 1. Уникальный ID для приложения — ДО создания QApplication
-    myappid = "M-47S.FinanceApp.1.0"
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    # AppUserModelID нужен только на Windows (для корректной иконки в таскбаре).
+    # На Linux/macOS этого API не существует.
+    if sys.platform == "win32":
+        myappid = "M-47S.FinanceApp.1.0"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
-    # 2. Создаём приложение
     app = QApplication(sys.argv)
-
-    # 3. Ставим иконку
     set_app_icon(app)
 
     session = Session()

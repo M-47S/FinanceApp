@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QSplitter, QGroupBox,
 )
 
-from API import FinanceAPIError
+from APP.exceptions import FinanceAPIError
 from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
 from APP.widgets.result_table import ResultTable
 
