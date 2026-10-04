@@ -1,0 +1,53 @@
+FROM postgres:16
+
+# ──────────────────────────────────────────────────────────────
+# 1. Локаль ru_RU.UTF-8
+#    Нужна для CREATE DATABASE ... LC_COLLATE='ru_RU.UTF-8'.
+#    В базовом образе она НЕ сгенерирована — генерируем вручную.
+# ──────────────────────────────────────────────────────────────
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends locales \
+ && sed -i 's/^# *ru_RU.UTF-8 UTF-8/ru_RU.UTF-8 UTF-8/' /etc/locale.gen \
+ && locale-gen ru_RU.UTF-8 \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV LANG=ru_RU.UTF-8 \
+    LANGUAGE=ru_RU:ru \
+    LC_ALL=ru_RU.UTF-8
+
+# ──────────────────────────────────────────────────────────────
+# 2. Superuser контейнера + default DB
+#    Читается официальным entrypoint-скриптом postgres-образа
+#    при первой инициализации тома.
+# ──────────────────────────────────────────────────────────────
+ENV POSTGRES_USER=postgres \
+    POSTGRES_PASSWORD=postgres_super_password \
+    POSTGRES_DB=postgres
+
+# ──────────────────────────────────────────────────────────────
+# 3. Пароли прикладных ролей
+#    Читаются нашими init-скриптами (10-roles.sh).
+#    Значения по умолчанию — для локальной разработки.
+#    При запуске переопределяются через `-e` / `env_file` в compose.
+# ──────────────────────────────────────────────────────────────
+ENV ADMIN_USER_PASSWORD=admin_password \
+    WRITER_USER_PASSWORD=writer_password \
+    READER_USER_PASSWORD=reader_password
+
+# ──────────────────────────────────────────────────────────────
+# 4. Init-скрипты
+#    Отрабатывают автоматически при первой инициализации тома,
+#    в алфавитном порядке имён файлов.
+# ──────────────────────────────────────────────────────────────
+COPY init/ /docker-entrypoint-initdb.d/
+RUN chmod +x /docker-entrypoint-initdb.d/*.sh
+
+# ──────────────────────────────────────────────────────────────
+# 5. Метаданные
+# ──────────────────────────────────────────────────────────────
+EXPOSE 5432
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
+    CMD pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" || exit 1
+
+# CMD/ENTRYPOINT наследуются от postgres:16 — ничего не переопределяем.
