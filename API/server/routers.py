@@ -27,8 +27,12 @@ router = APIRouter()
 def login(payload: LoginRequest):
     try:
         session = authenticate(
-            host=payload.host, port=payload.port, dbname=payload.dbname,
-            user=payload.user, password=payload.password, schema=payload.db_schema,
+            user=payload.user,
+            password=payload.password,
+            host=payload.host,
+            port=payload.port,
+            dbname=payload.dbname,
+            schema=payload.db_schema,
         )
     except Exception as e:
         raise HTTPException(status_code=401, detail=str(e))
@@ -37,6 +41,8 @@ def login(payload: LoginRequest):
         user=session.user,
         groups=session.groups,
         is_admin=session.is_admin,
+        dbname=session.config.dbname,
+        db_schema=session.config.schema,
     )
 
 
@@ -53,6 +59,18 @@ def me(session=Depends(get_session)):
         user=session.user,
         groups=session.groups,
         is_admin=session.is_admin,
+        dbname=session.config.dbname,
+        db_schema=session.config.schema,
+    )
+    
+@router.get("/tables/{table}/editable", response_model=ColumnsResponse, tags=["metadata"])
+def get_editable(
+    table: str,
+    session=Depends(get_session),
+    api: FinanceAPI = Depends(get_api),
+):
+    return ColumnsResponse(
+        columns=api.get_editable_columns(table, is_admin=session.is_admin)
     )
 
 

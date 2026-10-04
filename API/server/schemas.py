@@ -8,12 +8,12 @@ from pydantic import BaseModel, Field
 # ---------- auth ----------
 
 class LoginRequest(BaseModel):
-    host: str = "localhost"
-    port: int = 5432
-    dbname: str = "FinDB"
     user: str
     password: str
-    db_schema: str = "report"   
+    host: str | None = None
+    port: int | None = None
+    dbname: str | None = None
+    db_schema: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -21,6 +21,8 @@ class LoginResponse(BaseModel):
     user: str
     groups: list[str]
     is_admin: bool
+    dbname: str
+    db_schema: str
 
 
 class LogoutResponse(BaseModel):

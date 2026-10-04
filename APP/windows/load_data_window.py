@@ -23,7 +23,7 @@ class LoadDataWindow(QWidget):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        self.db_edit = QLineEdit(session.config.dbname)
+        self.db_edit = QLineEdit(session.dbname)
         self.db_edit.setReadOnly(True)
 
         self.table_combo = QComboBox()

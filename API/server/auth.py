@@ -8,6 +8,7 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import Lock
+import os
 
 from API import DBConfig, FinanceAPI, FinanceAPIError
 
@@ -91,16 +92,25 @@ sessions = SessionStore()
 
 
 def authenticate(
-    host: str, port: int, dbname: str,
-    user: str, password: str, schema: str,
+    user: str,
+    password: str,
+    host: str | None = None,
+    port: int | None = None,
+    dbname: str | None = None,
+    schema: str | None = None,
 ) -> UserSession:
     """
     Проверяет credentials через реальное подключение к БД.
-    Возвращает созданную сессию.
+    Если host/port/dbname/schema не переданы — берёт из env сервера
+    (правильно для облачного развёртывания).
     """
     config = DBConfig(
-        host=host, port=port, dbname=dbname,
-        user=user, password=password, schema=schema,
+        host=host or os.getenv("DB_HOST", "localhost"),
+        port=port or int(os.getenv("DB_PORT", "5432")),
+        dbname=dbname or os.getenv("DB_NAME", "FinDB"),
+        user=user,
+        password=password,
+        schema=schema or os.getenv("DB_SCHEMA", "report"),
     )
     api = FinanceAPI(config)
 
@@ -108,7 +118,7 @@ def authenticate(
         if not api.ping():
             raise RuntimeError("Не удалось подключиться к БД")
         groups = api.get_current_user_groups()
-    except FinanceAPIError as e:
+    except FinanceAPIError:
         raise
 
     is_admin = "admin_group" in groups

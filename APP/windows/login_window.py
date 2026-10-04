@@ -11,7 +11,7 @@ class LoginWindow(QWidget):
         super().__init__()
         self.session = session
         self.setWindowTitle("Finance App — Вход")
-        self.setFixedWidth(420)
+        self.setFixedWidth(460)
 
         layout = QVBoxLayout(self)
 
@@ -22,12 +22,9 @@ class LoginWindow(QWidget):
 
         form = QFormLayout()
 
-        self.host_edit = QLineEdit("localhost")
-        self.port_edit = QSpinBox()
-        self.port_edit.setRange(1, 65535)
-        self.port_edit.setValue(5432)
-        self.db_edit = QLineEdit("FinDB")
-        
+        self.api_url_edit = QLineEdit("http://127.0.0.1:8000")
+        self.api_url_edit.setPlaceholderText("http://<host>:<port>")
+
         self.user_edit = QLineEdit()
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
@@ -47,9 +44,7 @@ class LoginWindow(QWidget):
         self.toggle_pwd_btn.clicked.connect(self._toggle_password)
         pwd_row.addWidget(self.toggle_pwd_btn)
 
-        form.addRow("Host:", self.host_edit)
-        form.addRow("Port:", self.port_edit)
-        form.addRow("Database:", self.db_edit)
+        form.addRow("API URL:", self.api_url_edit)
         form.addRow("User:", self.user_edit)
         form.addRow("Password:", pwd_row)
 
@@ -64,9 +59,7 @@ class LoginWindow(QWidget):
     def _on_login(self):
         try:
             self.session.login(
-                host=self.host_edit.text().strip(),
-                port=self.port_edit.value(),
-                dbname=self.db_edit.text().strip(),
+                api_url=self.api_url_edit.text().strip(),
                 user=self.user_edit.text().strip(),
                 password=self.password_edit.text(),
             )
@@ -83,7 +76,7 @@ class LoginWindow(QWidget):
         self.menu = MainMenuWindow(self.session)
         self.menu.show()
         self.close()
-        
+
     def _toggle_password(self):
         if self.toggle_pwd_btn.isChecked():
             self.password_edit.setEchoMode(QLineEdit.EchoMode.Normal)
