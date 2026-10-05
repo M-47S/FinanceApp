@@ -1,0 +1,108 @@
+# ==============================================================================
+# Finance App — оркестрация API + DB.
+#
+# Сборка:  docker compose build
+# Запуск:  docker compose up -d
+# Логи:    docker compose logs -f
+# Стоп:    docker compose down         (том с данными сохраняется)
+#         docker compose down -v        (УДАЛИТ все данные БД)
+# ==============================================================================
+
+services:
+  # ────────────────────────────────────────────────────────────────────────
+  # DB — PostgreSQL с ролями, схемой и prime-данными
+  # ────────────────────────────────────────────────────────────────────────
+  db:
+    image: fin_db:dev
+    container_name: finance_db
+    restart: unless-stopped
+
+    environment:
+      # Суперпользователь контейнера — только для init-скриптов.
+      # Приложение им НЕ пользуется.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: postgres
+
+      # Пароли прикладных ролей — пробрасываются в init-скрипты
+      ADMIN_USER_PASSWORD:  ${ADMIN_USER_PASSWORD:?ADMIN_USER_PASSWORD is required}
+      WRITER_USER_PASSWORD: ${WRITER_USER_PASSWORD:?WRITER_USER_PASSWORD is required}
+      READER_USER_PASSWORD: ${READER_USER_PASSWORD:?READER_USER_PASSWORD is required}
+
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+    networks:
+      - backend          # только внутренняя сеть, наружу НЕ смотрим
+
+    healthcheck:
+      # Проверяем, что сервер жив И что БД FinDB уже создана (init-скрипты отработали)
+      test: ["CMD-SHELL", "pg_isready -U postgres -d FinDB -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s   # init-скрипты могут занять до минуты
+
+    # ⚠️ Порт 5432 НЕ пробрасываем наружу — БД доступна только изнутри.
+
+  # ────────────────────────────────────────────────────────────────────────
+  # API — FastAPI, общается с БД и принимает запросы от GUI
+  # ────────────────────────────────────────────────────────────────────────
+  api:
+    image: fin_api:dev
+    container_name: finance_api
+    restart: unless-stopped
+
+    depends_on:
+      db:
+        condition: service_healthy   # ждём, пока DB станет healthy
+
+    environment:
+      # Подключение к БД — по имени сервиса `db` в общей сети
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: FinDB
+      DB_SCHEMA: report
+
+      # Сервисный аккаунт для healthcheck (только чтение)
+      DB_USER: reader_user
+      DB_PASSWORD: ${READER_USER_PASSWORD:?READER_USER_PASSWORD is required}
+
+    ports:
+      # ${API_PORT} — порт на хосте, 8000 — порт внутри контейнера
+      - "${API_PORT:-8000}:8000"
+
+    networks:
+      - backend          # для общения с DB
+      - frontend         # чтобы принимать запросы извне
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ⚠️ GUI мы сюда НЕ включаем.
+  # Он живёт локально на твоём ПК (по желанию — тоже можно добавить).
+
+# ══════════════════════════════════════════════════════════════════════════════
+# СЕТИ
+# ══════════════════════════════════════════════════════════════════════════════
+networks:
+  # frontend — «внешняя» сеть. API виден снаружи через проброс порта.
+  frontend:
+    driver: bridge
+
+  # backend — «внутренняя» сеть. DB видит только API, наружу не выходит.
+  # internal: true блокирует NAT → контейнеры не могут стучаться в интернет.
+  backend:
+    driver: bridge
+    internal: true
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ТОМА
+# ══════════════════════════════════════════════════════════════════════════════
+volumes:
+  db_data:
+    driver: local

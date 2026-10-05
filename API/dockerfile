@@ -44,7 +44,7 @@ EXPOSE 8000
 # --- Healthcheck ---
 # Обращается к корневому эндпоинту "/" (публичный, без авторизации).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS http://localhost:8000/ || exit 1
+    CMD curl -fsS http://localhost:8000/health || exit 1
 
 # --- Запуск ---
 # CMD в exec-форме, чтобы Ctrl+C корректно гасил uvicorn.

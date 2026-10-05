@@ -24,6 +24,28 @@ router = APIRouter()
 def root():
     return {"service": "finance-api", "status": "ok"}
 
+
+@router.get("/health", tags=["meta"])
+def health():
+    """
+    Публичный healthcheck.
+    Проверяет, что сервер жив и что он может подключиться к БД
+    (использует сервисные креды из env: DB_USER / DB_PASSWORD).
+    """
+    from API import DBConfig, FinanceAPI
+
+    try:
+        config = DBConfig.from_env()
+        api = FinanceAPI(config)
+        if not api.ping():
+            raise RuntimeError("ping returned False")
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"DB not reachable: {e}",
+        )
+    return {"status": "ok", "db": "ok"}
+
 # ==================== AUTH ====================
 
 @router.post("/auth/login", response_model=LoginResponse, tags=["auth"])
