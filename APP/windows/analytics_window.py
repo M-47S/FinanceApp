@@ -10,8 +10,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QSplitter, QGroupBox,
 )
 
-from APP.exceptions import FinanceAPIError
-from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
+from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH, safe_api_call
 from APP.widgets.result_table import ResultTable
 
 
@@ -141,16 +140,10 @@ class AnalyticsWindow(QWidget):
 
     # ---------------- Данные ----------------
 
+    @safe_api_call()
     def _reload_tables(self, preserve: str | None = None):
         """Перезагружает список таблиц. preserve — какую таблицу оставить выбранной."""
-        try:
-            tables = self.session.api.get_tables()
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        tables = self.session.api.get_tables()
 
         self.table_combo.blockSignals(True)
         self.table_combo.clear()
@@ -166,20 +159,13 @@ class AnalyticsWindow(QWidget):
         # Сигналы заблокированы — вызываем вручную
         if target:
             self._reload_columns(target)
-            
+
+    @safe_api_call()
     def _reload_columns(self, table: str):
         self.columns_list.clear()
         if not table:
             return
-        try:
-            cols = self.session.api.get_columns(table)
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка",
-                str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        cols = self.session.api.get_columns(table)
         for c in cols:
             item = QListWidgetItem(c)
             item.setSelected(True)
@@ -190,73 +176,41 @@ class AnalyticsWindow(QWidget):
     def _selected_columns(self) -> list[str]:
         return [i.text() for i in self.columns_list.selectedItems()]
 
+    @safe_api_call()
     def _refresh(self):
-        """Перезагружает таблицы/колонки и повторяет последний запрос."""
         current_table = self.table_combo.currentText()
-
-        # 1. Перечитываем список таблиц (вдруг кто-то создал новую)
         self._reload_tables(preserve=current_table)
-
-        # 2. Если что-то уже выполнялось — повторяем
         if self.last_df is None:
             return
-
         if self.btn_sql.isChecked():
-            # В SQL-режиме — просто повторяем текущий запрос
             if self.sql_edit.toPlainText().strip():
                 self._execute_sql()
         else:
-            # В обычном режиме — повторяем выбор
             self._execute()
 
+    @safe_api_call()
     def _execute(self):
         table = self.table_combo.currentText()
         if not table:
-            show_message(
-                self, "Ошибка",
-                "Выберите таблицу",
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
+            show_message(self, "Ошибка", "Выберите таблицу",
+                         icon_path=FORBIDDEN_ICON_PATH)
             return
-
         cols = self._selected_columns() or None
         limit = self.limit_spin.value() or None
-
-        try:
-            df = self.session.api.unload_to_dataframe(
-                table=table, columns=cols, limit=limit,
-            )
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка",
-                str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
-
+        df = self.session.api.unload_to_dataframe(
+            table=table, columns=cols, limit=limit,
+        )
         self.last_df = df
         self.result_table.load_dataframe(df)
 
+    @safe_api_call()
     def _execute_sql(self):
         sql = self.sql_edit.toPlainText().strip()
         if not sql:
-            show_message(
-                self, "Ошибка",
-                "Введите SQL",
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
+            show_message(self, "Ошибка", "Введите SQL",
+                         icon_path=FORBIDDEN_ICON_PATH)
             return
-
-        try:
-            df = self.session.api.execute_sql(sql)
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка SQL",
-                str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
-
+        df = self.session.api.execute_sql(sql)
         self.last_df = df
         self.result_table.load_dataframe(df)
 

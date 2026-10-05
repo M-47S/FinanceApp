@@ -7,8 +7,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QFileDialog, QLabel, QComboBox,
 )
 
-from APP.exceptions import FinanceAPIError
-from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
+from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH, safe_api_call
 
 
 class LoadDataWindow(QWidget):
@@ -60,16 +59,10 @@ class LoadDataWindow(QWidget):
 
     # ---------- таблицы ----------
 
+    @safe_api_call()
     def _reload_tables(self):
         self.table_combo.clear()
-        try:
-            tables = self.session.api.get_tables()
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        tables = self.session.api.get_tables()
         self.table_combo.addItems(tables)
 
     # ---------- файл ----------
@@ -84,6 +77,7 @@ class LoadDataWindow(QWidget):
             self.file_label.setText(Path(path).name)
             self.file_label.setStyleSheet("color: black;")
 
+    @safe_api_call()
     def _do_load(self):
         table = self.table_combo.currentText()
         if not table:
@@ -99,17 +93,9 @@ class LoadDataWindow(QWidget):
             )
             return
 
-        try:
-            n = self.session.api.load_from_excel(
-                table=table, file_path=self.file_path,
-            )
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка загрузки", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
-
+        n = self.session.api.load_from_excel(
+            table=table, file_path=self.file_path,
+        )
         show_message(self, "Готово", f"Загружено строк: {n}")
 
     # ---------- ручной ввод ----------

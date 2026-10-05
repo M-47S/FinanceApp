@@ -45,3 +45,6 @@ class ExcelReadError(ExcelError):
 
 class ExcelWriteError(ExcelError):
     """Failed to write an Excel file."""
+    
+class ConnectionLostError(FinanceAPIError):
+    """Не удалось связаться с API (сервер недоступен, сеть упала, timeout)."""

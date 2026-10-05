@@ -10,15 +10,49 @@ from typing import Any, Sequence
 import pandas as pd
 import requests
 
-from APP.exceptions import (DBError, FinanceAPIError, TableNotFoundError, ValidationError)
+from APP.exceptions import (
+    ConnectionLostError,
+    DBError,
+    FinanceAPIError,
+    TableNotFoundError,
+    ValidationError,
+)
 
 
 class RemoteFinanceAPI:
-    def __init__(self, base_url: str, token: str, timeout: float = 60.0):
+    def __init__(self, base_url: str, token: str, timeout: float = 15.0):
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self.timeout = timeout
+        # timeout = (connect, read): быстро отваливаемся, если сервер недоступен
+        self.timeout = (5.0, timeout)
 
+    # ---------- internal ----------
+
+    def _request(self, method: str, path: str, **kwargs) -> requests.Response:
+        """
+        Универсальная обёртка над requests: ловит сетевые ошибки
+        и превращает их в ConnectionLostError.
+        """
+        url = f"{self.base_url}{path}"
+        headers = kwargs.pop("headers", {}) or {}
+        headers.setdefault("Authorization", f"Bearer {self.token}")
+
+        try:
+            return requests.request(
+                method, url, headers=headers, timeout=self.timeout, **kwargs,
+            )
+        except requests.ConnectionError as e:
+            raise ConnectionLostError(
+                f"Нет связи с API ({self.base_url}). "
+                "Проверьте, запущен ли сервер и доступна ли сеть."
+            ) from e
+        except requests.Timeout as e:
+            raise ConnectionLostError(
+                f"Сервер API не отвечает ({self.base_url}). "
+                "Возможно, он перегружен или недоступен."
+            ) from e
+        except requests.RequestException as e:
+            raise ConnectionLostError(f"Ошибка сети: {e}") from e
     # ---------- internal ----------
 
     def _headers(self, json: bool = False) -> dict[str, str]:
@@ -47,14 +81,17 @@ class RemoteFinanceAPI:
             raise DBError(f"Сессия истекла или недействительна: {detail}")
         if code == 403:
             raise FinanceAPIError(f"Доступ запрещён: {detail}")
-        if code == 503:
-            raise DBError(f"Сервер не может подключиться к БД: {detail}")
+        if code in (502, 503, 504):
+            # API жив, но не может достучаться до БД (или прокси не отвечает)
+            raise ConnectionLostError(
+                f"API не может подключиться к БД: {detail}"
+            )
         raise FinanceAPIError(f"[{code}] {detail}")
 
     # ---------- metadata ----------
 
     def get_tables(self) -> list[str]:
-        r = requests.get(self._url("/tables"), headers=self._headers(), timeout=self.timeout)
+        r = self._request("GET", "/tables", headers=self._headers())
         self._check(r)
         return r.json()["tables"]
 
@@ -96,23 +133,13 @@ class RemoteFinanceAPI:
 
     # ---------- data ----------
 
-    def unload_to_dataframe(
-        self,
-        table: str,
-        columns: Sequence[str] | None = None,
-        limit: int | None = None,
-    ) -> pd.DataFrame:
-        params: dict[str, Any] = {}
+    def unload_to_dataframe(self, table, columns=None, limit=None) -> pd.DataFrame:
+        params: dict = {}
         if columns:
             params["columns"] = ",".join(columns)
         if limit is not None:
             params["limit"] = limit
-        r = requests.get(
-            self._url(f"/data/{table}"),
-            headers=self._headers(),
-            params=params,
-            timeout=self.timeout,
-        )
+        r = self._request("GET", f"/data/{table}", headers=self._headers(), params=params)
         self._check(r)
         return pd.DataFrame(r.json()["rows"])
 
@@ -178,13 +205,12 @@ class RemoteFinanceAPI:
 
     # ---------- SQL ----------
 
-    def execute_sql(self, sql: str, params: Sequence | None = None) -> pd.DataFrame:
+    def execute_sql(self, sql: str, params=None) -> pd.DataFrame:
         payload = {"sql": sql, "params": list(params) if params else None}
-        r = requests.post(
-            self._url("/sql"),
+        r = self._request(
+            "POST", "/sql",
             headers=self._headers(json=True),
             json=payload,
-            timeout=self.timeout,
         )
         self._check(r)
         data = r.json()

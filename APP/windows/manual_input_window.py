@@ -6,8 +6,7 @@ from PyQt6.QtWidgets import (
     QSpinBox, QTableWidget, QHeaderView, QComboBox,
 )
 
-from APP.exceptions import FinanceAPIError
-from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
+from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH, safe_api_call
 
 
 class ManualInputWindow(QWidget):
@@ -17,8 +16,8 @@ class ManualInputWindow(QWidget):
         self.table = table
 
         self.columns: list[str] = []
-        self.fk_columns: dict[str, dict] = {}          # col → {ref_table, ref_column}
-        self.fk_options: dict[str, list[tuple]] = {}   # col → [(pk, label), ...]
+        self.fk_columns: dict[str, dict] = {}
+        self.fk_options: dict[str, list[tuple]] = {}
         self.nullable_columns: set[str] = set()
 
         self.setWindowTitle(f"Интерактивная запись — {table}")
@@ -66,31 +65,20 @@ class ManualInputWindow(QWidget):
 
     # ---------- инициализация ----------
 
+    @safe_api_call()
     def _load_metadata(self):
         """Тянем FK, опции для дропдаунов и nullable-колонки."""
-        try:
-            self.fk_columns = self.session.api.get_foreign_keys(self.table)
-            self.nullable_columns = self.session.api.get_nullable_columns(self.table)
+        self.fk_columns = self.session.api.get_foreign_keys(self.table)
+        self.nullable_columns = self.session.api.get_nullable_columns(self.table)
 
-            for col, info in self.fk_columns.items():
-                self.fk_options[col] = self.session.api.get_fk_options(
-                    info["ref_table"]
-                )
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка метаданных", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
+        for col, info in self.fk_columns.items():
+            self.fk_options[col] = self.session.api.get_fk_options(
+                info["ref_table"]
             )
 
+    @safe_api_call()
     def _load_columns(self):
-        try:
-            self.columns = self.session.api.get_writable_columns(self.table)
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        self.columns = self.session.api.get_writable_columns(self.table)
 
         if not self.columns:
             show_message(
@@ -110,7 +98,6 @@ class ManualInputWindow(QWidget):
     def _resize_rows(self, n: int):
         current = self.table_widget.rowCount()
         self.table_widget.setRowCount(n)
-        # Создаём виджеты только для новых строк — существующие сохраняем
         for i in range(current, n):
             self._setup_row_widgets(i)
 
@@ -121,7 +108,6 @@ class ManualInputWindow(QWidget):
                 continue
 
             combo = QComboBox()
-            # Если колонка nullable — первым пунктом «пусто» (NULL)
             if col in self.nullable_columns:
                 combo.addItem("— пусто —", None)
 
@@ -134,13 +120,11 @@ class ManualInputWindow(QWidget):
 
     def _clear(self):
         self.table_widget.clearContents()
-        # clearContents() не удаляет cellWidget — чистим вручную
         for i in range(self.table_widget.rowCount()):
             for j in range(self.table_widget.columnCount()):
                 widget = self.table_widget.cellWidget(i, j)
                 if widget is not None:
                     self.table_widget.removeCellWidget(i, j)
-        # Пересоздаём виджеты для FK-колонок
         for i in range(self.table_widget.rowCount()):
             self._setup_row_widgets(i)
 
@@ -154,7 +138,7 @@ class ManualInputWindow(QWidget):
                 widget = self.table_widget.cellWidget(i, j)
 
                 if isinstance(widget, QComboBox):
-                    value = widget.currentData()  # None, если «— пусто —»
+                    value = widget.currentData()
                     if value is not None:
                         is_empty = False
                     row.append(value)
@@ -172,6 +156,7 @@ class ManualInputWindow(QWidget):
 
         return pd.DataFrame(rows, columns=self.columns)
 
+    @safe_api_call()
     def _save(self):
         df = self._collect_dataframe()
         if df.empty:
@@ -181,15 +166,7 @@ class ManualInputWindow(QWidget):
             )
             return
 
-        try:
-            n = self.session.api.load_dataframe(self.table, df)
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка сохранения", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
-
+        n = self.session.api.load_dataframe(self.table, df)
         show_message(self, "Готово", f"Добавлено строк: {n}")
         self._clear()
         self.rows_spin.setValue(1)

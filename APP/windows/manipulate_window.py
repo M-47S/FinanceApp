@@ -10,8 +10,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-from APP.exceptions import FinanceAPIError
-from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
+from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH, safe_api_call
 from APP.widgets.result_table import ResultTable
 
 
@@ -176,15 +175,9 @@ class ManipulateWindow(QWidget):
 
     # ---------------- Таблицы и данные ----------------
 
+    @safe_api_call()
     def _reload_tables(self, preserve: str | None = None):
-        try:
-            tables = self.session.api.get_tables()
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        tables = self.session.api.get_tables()
 
         self.table_combo.blockSignals(True)
         self.table_combo.clear()
@@ -199,31 +192,26 @@ class ManipulateWindow(QWidget):
 
         if target:
             self._on_table_changed(target)
-    
+
+    @safe_api_call()
     def _on_table_changed(self, table: str):
         if not table:
             return
         self.current_table = table
         try:
             self.pk_columns = self.session.api.get_primary_key_columns(table)
-        except FinanceAPIError:
+        except Exception:
             self.pk_columns = []
         self._reload_data()
 
+    @safe_api_call()
     def _reload_data(self):
         if not self.current_table:
             return
         limit = self.limit_spin.value()
-        try:
-            df = self.session.api.fetch_all(
-                self.current_table, limit=limit,
-            )
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        df = self.session.api.fetch_all(
+            self.current_table, limit=limit,
+        )
 
         pk_display = ", ".join(self.pk_columns) if self.pk_columns else "—"
         self.data_label.setText(
@@ -231,13 +219,16 @@ class ManipulateWindow(QWidget):
             f"(строк: {len(df)}, PK: {pk_display})"
         )
         self.result_table.load_dataframe(df)
-    
+
+    @safe_api_call()
     def _refresh(self):
         """Полное обновление: список таблиц + данные."""
         current_table = self.table_combo.currentText()
         self._reload_tables(preserve=current_table)
+
     # ---------------- Редактирование ----------------
 
+    @safe_api_call()
     def _edit_selected(self):
         rows = self.result_table.get_selected_rows()
         if len(rows) != 1:
@@ -258,17 +249,9 @@ class ManipulateWindow(QWidget):
             return
 
         row_data = self.result_table.get_row_raw(rows[0])
-
-        try:
-            editable = self.session.api.get_editable_columns(
-                self.current_table, is_admin=self.session.is_admin,
-            )
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        editable = self.session.api.get_editable_columns(
+            self.current_table, is_admin=self.session.is_admin,
+        )
 
         if not editable:
             show_message(
@@ -285,22 +268,15 @@ class ManipulateWindow(QWidget):
         updates = dialog.get_values()
         pk_values = {c: row_data.get(c) for c in self.pk_columns}
 
-        try:
-            n = self.session.api.update_row(
-                self.current_table, pk_values, updates,
-            )
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка обновления", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
-
+        n = self.session.api.update_row(
+            self.current_table, pk_values, updates,
+        )
         show_message(self, "Готово", f"Обновлено строк: {n}")
         self._reload_data()
 
     # ---------------- Удаление ----------------
-
+    # ⚠️ Здесь НЕ используем декоратор — метод сам собирает ошибки
+    #    по каждой строке и продолжает работу с остальными.
     def _delete_selected(self):
         rows = self.result_table.get_selected_rows()
         if not rows:
@@ -338,7 +314,7 @@ class ManipulateWindow(QWidget):
         for pk in pk_list:
             try:
                 deleted += self.session.api.delete_row(self.current_table, pk)
-            except FinanceAPIError as e:
+            except Exception as e:
                 errors.append(f"{pk}: {e}")
 
         msg = f"Удалено строк: {deleted}"
@@ -348,10 +324,12 @@ class ManipulateWindow(QWidget):
                 msg += f"\n... и ещё {len(errors) - 5}"
 
         show_message(self, "Результат", msg)
+        # Перезагрузка данных — уже под декоратором, поймает свои ошибки
         self._reload_data()
 
     # ---------------- SQL ----------------
 
+    @safe_api_call()
     def _execute_sql(self):
         sql = self.sql_edit.toPlainText().strip()
         if not sql:
@@ -361,14 +339,7 @@ class ManipulateWindow(QWidget):
             )
             return
 
-        try:
-            df = self.session.api.execute_sql(sql)
-        except FinanceAPIError as e:
-            show_message(
-                self, "Ошибка SQL", str(e),
-                icon_path=FORBIDDEN_ICON_PATH,
-            )
-            return
+        df = self.session.api.execute_sql(sql)
 
         # Пустой DataFrame без колонок = DML/DDL без RETURNING
         if df.empty and len(df.columns) == 0:

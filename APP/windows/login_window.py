@@ -3,6 +3,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QSpinBox,
 )
 from PyQt6.QtCore import Qt
+
+from APP.exceptions import ConnectionLostError
 from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
 
 
@@ -29,11 +31,9 @@ class LoginWindow(QWidget):
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
 
-        # --- Password + кнопка «показать/скрыть» в одной строке ---
         pwd_row = QHBoxLayout()
         pwd_row.setContentsMargins(0, 0, 0, 0)
         pwd_row.setSpacing(4)
-
         pwd_row.addWidget(self.password_edit, 1)
 
         self.toggle_pwd_btn = QPushButton("👁")
@@ -63,11 +63,15 @@ class LoginWindow(QWidget):
                 user=self.user_edit.text().strip(),
                 password=self.password_edit.text(),
             )
+        except ConnectionLostError as e:
+            show_message(
+                self, "Соединение потеряно", str(e),
+                icon_path=FORBIDDEN_ICON_PATH,
+            )
+            return
         except Exception as e:
             show_message(
-                self,
-                "Ошибка входа",
-                str(e),
+                self, "Ошибка входа", str(e),
                 icon_path=FORBIDDEN_ICON_PATH,
             )
             return
