@@ -1,3 +1,8 @@
+import logging
+import psycopg2
+
+from .report_parser import parse_monthly_report
+
 from pathlib import Path
 from typing import Sequence
 
@@ -13,6 +18,7 @@ from .exceptions import (
     ValidationError,
 )
 
+logger = logging.getLogger(__name__)
 
 class FinanceAPI:
     def __init__(self, config: DBConfig | None = None):
@@ -53,13 +59,24 @@ class FinanceAPI:
         
     # ---------- 1. load from dataframe into DB ----------
 
-    def load_dataframe(self, table: str, df: pd.DataFrame) -> int:
+    def load_dataframe(
+        self,
+        table: str,
+        df: pd.DataFrame,
+        *,
+        source: str | None = None,
+        row_numbers: Sequence[int] | None = None,
+    ) -> int:
         """
-        Вставляет строки из DataFrame в таблицу.
-        Колонки DataFrame должны совпадать с колонками таблицы.
-        Возвращает число вставленных строк.
+        Построчная вставка с логом неудачных строк.
+
+        source      — имя файла (для лога).
+        row_numbers — список 1-индексированных номеров рядов в исходном файле
+                    (по одному на каждую строку df). Если None —
+                    используется порядковый номер df.
         """
         if df.empty:
+            logger.info("load_dataframe: '%s' — пустой DataFrame", table)
             return 0
 
         self._table_columns(table)
@@ -73,15 +90,39 @@ class FinanceAPI:
             f"VALUES ({placeholders})"
         )
 
-        values = [
+        values_rows = [
             tuple(None if pd.isna(v) else v for v in row)
             for row in df.itertuples(index=False, name=None)
         ]
 
-        with self.db.cursor() as cur:
-            cur.executemany(sql, values)
-            return cur.rowcount
+        src = source or "<dataframe>"
+        inserted = 0
+        failed = 0
 
+        with self.db.cursor() as cur:
+            for i, values in enumerate(values_rows, start=1):
+                excel_row = row_numbers[i - 1] if row_numbers else i
+                cur.execute("SAVEPOINT sp_row")
+                try:
+                    cur.execute(sql, values)
+                    cur.execute("RELEASE SAVEPOINT sp_row")
+                    inserted += 1
+                except psycopg2.Error as e:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_row")
+                    failed += 1
+                    signature = dict(zip(cols, values))
+                    logger.error(
+                        "INSERT FAILED | table=%s.%s | source=%s | row=%d | "
+                        "record=%r | error=%s",
+                        self.schema, table, src, excel_row,
+                        signature, str(e).strip(),
+                    )
+
+        logger.info(
+            "load_dataframe: '%s.%s' | source=%s | inserted=%d | failed=%d",
+            self.schema, table, src, inserted, failed,
+        )
+        return inserted
     # ---------- 2. load from Excel into DB ----------
 
     def load_from_excel(
@@ -423,3 +464,107 @@ class FinanceAPI:
         with self.db.cursor() as cur:
             cur.execute(sql, (self.schema, table))
             return {r["column_name"] for r in cur.fetchall()}
+        
+    def load_monthly_report(self, table: str, file_path) -> dict:
+        """
+        Загрузка месячного отчёта (формат 'Август.xlsx') в таблицу transactions.
+        Возвращает {'total': int, 'inserted': int, 'failed': int}.
+        """
+        parsed = parse_monthly_report(file_path)
+        total = len(parsed.df)
+        logger.info(
+            "Report '%s': %02d.%d, строк=%d",
+            file_path, parsed.month, parsed.year, total,
+        )
+
+        df = parsed.df
+        reason_map = self._name_to_id("reasons")
+        type_map = self._name_to_id("op_types")
+
+        rows: list[dict] = []
+        row_numbers: list[int] = []
+        failed = 0
+
+        for _, r in df.iterrows():
+            excel_row = int(r["_excel_row"])
+            reason_id = self._resolve_reason(r["reason_name"], reason_map)
+            type_id = type_map.get(r["type_name"])
+
+            if reason_id is None:
+                failed += 1
+                logger.error(
+                    "INSERT FAILED | table=%s.%s | source=%s | row=%d | "
+                    "record=%r | error=reason '%s' not found",
+                    self.schema, table, str(file_path), excel_row,
+                    {
+                        "op_date": r["op_date"],
+                        "amount": r["amount"],
+                        "reason_name": r["reason_name"],
+                        "type_name": r["type_name"],
+                    },
+                    r["reason_name"],
+                )
+                continue
+
+            if type_id is None:
+                failed += 1
+                logger.error(
+                    "INSERT FAILED | table=%s.%s | source=%s | row=%d | "
+                    "record=%r | error=op_type '%s' not found",
+                    self.schema, table, str(file_path), excel_row,
+                    {
+                        "op_date": r["op_date"],
+                        "amount": r["amount"],
+                        "reason_name": r["reason_name"],
+                        "type_name": r["type_name"],
+                    },
+                    r["type_name"],
+                )
+                continue
+
+            rows.append({
+                "amount": r["amount"],
+                "op_date": r["op_date"],
+                "reason_id": reason_id,
+                "type_id": type_id,
+            })
+            row_numbers.append(excel_row)
+
+        insert_df = pd.DataFrame(rows, columns=["amount", "op_date",
+                                                "reason_id", "type_id"])
+
+        inserted = self.load_dataframe(
+            table, insert_df,
+            source=str(file_path),
+            row_numbers=row_numbers,
+        )
+
+        return {"total": total, "inserted": inserted, "failed": failed}
+
+
+    def _name_to_id(self, table: str) -> dict[str, int]:
+        """{name: id} для справочника reasons/op_types."""
+        sql = f'SELECT id, name FROM "{self.schema}"."{table}"'
+        with self.db.cursor() as cur:
+            cur.execute(sql)
+            return {r["name"]: r["id"] for r in cur.fetchall()}
+
+
+    @staticmethod
+    def _resolve_reason(source: str, mapping: dict[str, int]) -> int | None:
+        """
+        Источник → id в reasons.
+        Правило:
+        1) целиком («Еда» → id)
+        2) первая часть до «|» («Помощь|Анастасия» → «Помощь»)
+        """
+        if not source:
+            return None
+        s = source.strip()
+        if s in mapping:
+            return mapping[s]
+        if "|" in s:
+            head = s.split("|", 1)[0].strip()
+            if head in mapping:
+                return mapping[head]
+        return None
