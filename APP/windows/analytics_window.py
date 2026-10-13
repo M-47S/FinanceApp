@@ -28,16 +28,40 @@ class AnalyticsWindow(QWidget):
 
         # ---------- Верхняя панель: переключатели режимов ----------
         top = QHBoxLayout()
+        
         self.btn_normal = QPushButton("Обычный режим")
         self.btn_sql = QPushButton("SQL-Mode")
+        
         for b in (self.btn_normal, self.btn_sql):
             b.setCheckable(True)
             b.setMinimumHeight(34)
+            
         self.btn_normal.setChecked(True)
         self.btn_normal.clicked.connect(lambda: self._set_mode("normal"))
         self.btn_sql.clicked.connect(lambda: self._set_mode("sql"))
+        
+        self.btn_ai_api = QPushButton("✨")
+        self.btn_ai_api.setMinimumHeight(34)
+        self.btn_ai_api.setToolTip(
+                    "Открыть диалоговое окно с ИИ 🧠"
+                )
+        self.btn_ai_api.setStyleSheet("""
+                    QPushButton {
+                        color: black;
+                        border-radius: 12px;
+                        border: 1px solid transparent;  /* рамка нужна, чтобы не терялись края при hover */
+                        padding: 8px 16px;
+                        background-color: transparent;
+                    }
+                    QPushButton:hover {
+                        background-color: rgba(0, 0, 0, 10%);
+                    }
+                """)
+        self.btn_ai_api.clicked.connect(self._open_ai)
+        
         top.addWidget(self.btn_normal)
         top.addWidget(self.btn_sql)
+        top.addWidget(self.btn_ai_api)
         top.addStretch()
 
         self.refresh_btn = QPushButton("🔄 Обновить")
@@ -260,6 +284,15 @@ class AnalyticsWindow(QWidget):
         self.last_df = df
         self.result_table.load_dataframe(df)
 
+    def _open_ai(self):
+        from APP.windows.llm_dialog import LLMDialog
+        
+        print("Button ✨ is clicked!")
+        
+        self.ai = LLMDialog()
+        
+        self.ai.show()
+        
     # ---------------- Сохранение ----------------
 
     def _save(self):
