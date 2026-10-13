@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont, QFontDatabase
+from PyQt6.QtGui import QFont, QFontDatabase, QTextCursor, QTextBlockFormat
 
 import sys
 
@@ -23,7 +23,8 @@ GREETING_TEXT = """
 
 Я — **ИИ-ассистент** этого приложения. Готов помочь с вопросами, текстами, кодом, объяснениями и всем, что придёт в голову.
 
-# Моя модель 🦾 : {model}
+## Моя модель 🦾 : {model}
+
 
 ## Что я умею
 
@@ -116,12 +117,19 @@ class LLMDialog(QWidget):
         tool_bar.setContentsMargins(5, 0, 0, 0)
         
         # --- Текст LLM ---
+        body_font = QFont()
+        body_font.setFamilies(["Segoe UI", "Inter", "Noto Sans", "sans-serif"])
+        body_font.setPointSize(11)
+        body_font.setWeight(QFont.Weight.Normal)
+        body_font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+                
         self.llm_label = QTextBrowser()
         self.llm_label.setPlaceholderText("Не менее уютное место для ответа LLM'ки :)")
         self.llm_label.setMarkdown(GREETING_TEXT.format(model=self.llm_session.base_model))
         self.llm_label.setOpenExternalLinks(True)
         self.llm_label.setMinimumHeight(LLM_MIN_H)
         self.llm_label.setMaximumHeight(LLM_MAX_H)
+        self.llm_label.setFont(body_font)
 
         top_widget = QWidget()
         # КЛЮЧЕВОЕ: контейнер тоже не может быть выше, чем llm_label + его отступы.
@@ -168,6 +176,14 @@ class LLMDialog(QWidget):
         
         root.addLayout(tool_bar)
         root.addWidget(outter_splitter, 1)
+    
+        def _apply_line_height(browser, percent: int = 140):
+            cursor = browser.textCursor()
+            cursor.select(QTextCursor.SelectionType.Document)
+            fmt = QTextBlockFormat()
+            fmt.setLineHeight(percent, 1)   # 1 = ProportionalHeight
+            cursor.mergeBlockFormat(fmt)
+            browser.setTextCursor(cursor)
     
     def _on_answer(self, answer: str):
         self.llm_label.setMarkdown(answer)
