@@ -15,6 +15,9 @@ from APP.ui_helpers import show_message, FORBIDDEN_ICON_PATH
 
 from LLM import LLMSession, LLMApi, LLMRequest, LLMResponse, Message
 
+from APP.workers import AskWorker
+
+
 GREETING_TEXT = """
 # 👋 Привет!
 
@@ -59,7 +62,8 @@ class LLMDialog(QWidget):
     def __init__(self):
         super().__init__()
         self.llm_session = LLMSession(LLMApi())
-
+        self._worker: AskWorker | None = None
+        
         self.setWindowTitle("ИИ-помощник")
 
         LLM_MIN_H,  LLM_MAX_H  = 150, 430
@@ -165,18 +169,39 @@ class LLMDialog(QWidget):
         root.addLayout(tool_bar)
         root.addWidget(outter_splitter, 1)
     
+    def _on_answer(self, answer: str):
+        self.llm_label.setMarkdown(answer)
+
+    def _on_error(self, message: str):
+        self.llm_label.setMarkdown(f"### ⚠️ Ошибка\n\n```\n{message}\n```")
+
+    def _on_finished(self):
+        self.prompt_line.setEnabled(True)
+        self.btn_send.setEnabled(True)
+        self.prompt_line.setFocus()
+        self._worker = None   
+    
     def _send_prompt(self):
-        prompt = Message("user", self.prompt_line.toPlainText())
+        prompt = self.prompt_line.toPlainText().strip()
+        if not prompt:
+            return
+        
         self.prompt_line.clear()
         
-        self.llm_label.setMarkdown(WAITING_TEXT)
+        self.llm_label.setMarkdown(WAITING_TEXT) #Ставим заглушку и запрещаем доступ к вводу и отправке
+        self.prompt_line.setEnabled(False)
+        self.btn_send.setEnabled(False)
         
-        request = LLMRequest(prompt = prompt, session_id = self.llm_session.id)
-        response = self.llm_session.ask(request=request)
-
-        self.llm_label.setMarkdown(response.answer)
+        request = LLMRequest(
+            prompt=Message("user", prompt),
+            session_id=self.llm_session.id,
+        )
         
-        print("Button 📨 is clicked")
+        self._worker = AskWorker(self.llm_session, request, parent=self)
+        self._worker.done.connect(self._on_answer)
+        self._worker.failed.connect(self._on_error)
+        self._worker.finished.connect(self._on_finished)
+        self._worker.start()
         
 if __name__ == "__main__":
     app = QApplication(sys.argv)
