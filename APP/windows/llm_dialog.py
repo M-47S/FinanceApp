@@ -2,10 +2,10 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QComboBox,
     QListWidget, QListWidgetItem, QSpinBox, QLabel, QTextEdit,
-    QFileDialog, QSplitter, QGroupBox, QTextBrowser, QLineEdit, QSizePolicy
+    QFileDialog, QSplitter, QGroupBox, QTextBrowser, QLineEdit, QSizePolicy, QMessageBox
 )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QFileDialog
 from PyQt6.QtGui import QFont, QFontDatabase, QTextCursor, QTextBlockFormat
 
 import sys
@@ -105,11 +105,13 @@ class LLMDialog(QWidget):
         self.btn_choice.setToolTip(
                     "Выбрать другую сессию диалога"
                 )
+        self.btn_choice.clicked.connect(self._change_session)
         
         self.btn_reset = QPushButton("Сбросить 🔄")
         self.btn_reset.setToolTip(
                             "Очистить текущий диалог(Т.е поменять на новую 'пустую' сессию)"
                         )
+        self.btn_reset.clicked.connect(self._flush_session)
         
         tool_bar.addWidget(self.btn_choice)
         tool_bar.addWidget(self.btn_reset)
@@ -177,13 +179,13 @@ class LLMDialog(QWidget):
         root.addLayout(tool_bar)
         root.addWidget(outter_splitter, 1)
     
-        def _apply_line_height(browser, percent: int = 140):
-            cursor = browser.textCursor()
-            cursor.select(QTextCursor.SelectionType.Document)
-            fmt = QTextBlockFormat()
-            fmt.setLineHeight(percent, 1)   # 1 = ProportionalHeight
-            cursor.mergeBlockFormat(fmt)
-            browser.setTextCursor(cursor)
+    def _apply_line_height(browser, percent: int = 140):
+        cursor = browser.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        fmt = QTextBlockFormat()
+        fmt.setLineHeight(percent, 1)   # 1 = ProportionalHeight
+        cursor.mergeBlockFormat(fmt)
+        browser.setTextCursor(cursor)
     
     def _on_answer(self, answer: str):
         self.llm_label.setMarkdown(answer)
@@ -197,6 +199,23 @@ class LLMDialog(QWidget):
         self.prompt_line.setFocus()
         self._worker = None   
     
+    def _show_info(self, title: str, text: str):
+        QMessageBox.information(self, title, text)
+
+    def _flush_session(self):
+        self.llm_session = LLMSession(LLMApi())
+        self._show_info(title="Очистка", text="Сессия сброшена!")
+
+    def _change_session(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Выбрать сессию"
+        )
+        if not path:
+            return
+        
+        self.llm_session = LLMSession.load(path, LLMApi())
+        self._show_info(title="Обновление", text="Сессия изменена!")
+
     def _send_prompt(self):
         prompt = self.prompt_line.toPlainText().strip()
         if not prompt:
