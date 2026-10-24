@@ -55,6 +55,11 @@ class LoadDataWindow(QWidget):
         self.load_btn.setMinimumHeight(40)
         self.load_btn.clicked.connect(self._do_load)
         layout.addWidget(self.load_btn)
+        
+        self.report_btn = QPushButton("Загрузить месячный отчёт")
+        self.report_btn.setMinimumHeight(40)
+        self.report_btn.clicked.connect(self._do_load_report)
+        layout.addWidget(self.report_btn)
 
         self._reload_tables()
 
@@ -112,6 +117,28 @@ class LoadDataWindow(QWidget):
 
         show_message(self, "Готово", f"Загружено строк: {n}")
 
+    def _do_load_report(self):
+        if not self.file_path:
+            show_message(self, "Ошибка", "Выберите файл",
+                        icon_path=FORBIDDEN_ICON_PATH)
+            return
+        try:
+            result = self.session.api.load_monthly_report(
+                table="transactions", file_path=self.file_path,
+            )
+        except FinanceAPIError as e:
+            show_message(self, "Ошибка загрузки", str(e),
+                        icon_path=FORBIDDEN_ICON_PATH)
+            return
+
+        show_message(
+            self, "Готово",
+            f"Всего строк в файле: {result['total']}\n"
+            f"Загружено:            {result['inserted']}\n"
+            f"Пропущено (ошибки):   {result['failed']}\n\n"
+            f"Подробности — в logs/finance_app.log",
+        )
+    
     # ---------- ручной ввод ----------
 
     def _open_manual_input(self):

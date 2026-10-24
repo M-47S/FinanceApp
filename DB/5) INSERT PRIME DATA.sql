@@ -39,3 +39,8 @@ INSERT INTO report.reasons (name) VALUES
     ('Комиссия'),
     ('Фиаско')
 ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO report.op_types (name) VALUES
+    ('Карта'),
+    ('Наличные')
+ON CONFLICT (name) DO NOTHING;

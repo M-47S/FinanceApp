@@ -29,3 +29,6 @@ env/
 # ===== OS =====
 .DS_Store
 Thumbs.db
+
+Reports/
+*.llg
